@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Chat</title>
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/bulma@1.0.0/css/bulma.min.css"
+    />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/elliptic/6.5.4/elliptic.min.js"></script>
+    <style>
+      body {
+        margin: 3%;
+      }
+      #messageContainer {
+        border: 1px solid #ccc;
+        padding: 10px;
+        margin-bottom: 10px;
+        height: 300px;
+        overflow-y: auto;
+      }
+      .user-card {
+        padding: 10px;
+        border: 1px solid #ddd;
+        margin: 5px;
+        cursor: pointer;
+        display: inline-block;
+      }
+      .user-card.active {
+        border-color: #000;
+      }
+    </style>
+  </head>
+  <body>
+    <h1 class="title">Chat</h1>
+    <div id="usersContainer"></div>
+    <div class="container">
+      <div id="messageContainer"></div>
+      <form id="messageForm">
+        <input type="hidden" id="messageTo" />
+        <div class="field has-addons">
+          <div class="control">
+            <input
+              class="input is-rounded"
+              type="text"
+              id="messageContent"
+              placeholder="Enter your message"
+            />
+          </div>
+          <div class="control">
+            <button class="button is-primary is-rounded" type="submit">
+              Send
+            </button>
+          </div>
+        </div>
+      </form>
+    </div>
+
+    <script>
+      const ws = new WebSocket("ws://" + window.location.host + "/ws");
+
+      let sharedSecret;
+
+      // Initialize the ECC key pair
+      const EC = elliptic.ec;
+      const ec = new EC("p256");
+      const keyPair = ec.genKeyPair();
+      const publicKey = keyPair.getPublic().encode("hex");
+
+      ws.onopen = function (event) {
+        console.log("Connected to the WebSocket.");
+
+        const username = sessionStorage.getItem("username");
+        if (username) {
+          ws.send(
+            JSON.stringify({
+              type: "auth",
+              username: username,
+              publicKey: publicKey,
+            })
+          );
+        }
+
+        fetchUsers(); // Fetch users when WebSocket connection opens
+        fetchAndDisplayMessages(); // Fetch and display old messages
+      };
+
+      ws.onmessage = function (event) {
+        const messageData = JSON.parse(event.data);
+
+        if (messageData.type === "keyExchange") {
+          // Handle key exchange and derive shared secret
+          const serverPublicKey = ec.keyFromPublic(
+            messageData.serverPublicKey,
+            "hex"
+          );
+          sharedSecret = keyPair
+            .derive(serverPublicKey.getPublic())
+            .toString(16)
+            .slice(0, 16); // Use 8 bytes for DES key
+
+          console.log("Shared secret derived:", sharedSecret);
+        } else if (messageData.type === "message") {
+          // Decrypt the message
+          // const decryptedContent = decryptDES(
+          //   messageData.content,
+          //   sharedSecret
+          // );
+          // messageData.content = decryptedContent;
+          console.log(messageData);
+          displayMessage(messageData);
+        }
+      };
+
+      ws.onerror = function (event) {
+        console.error("WebSocket error observed:", event);
+      };
+
+      ws.onclose = function (event) {
+        console.log("WebSocket is closed now.");
+      };
+
+      document
+        .getElementById("messageForm")
+        .addEventListener("submit", function (event) {
+          event.preventDefault();
+          const to = document.getElementById("messageTo").value;
+          const content = document.getElementById("messageContent").value;
+          const sender = sessionStorage.getItem("username");
+
+          // Encrypt the message content
+          // const encryptedContent = encryptDES(content, sharedSecret);
+          const message = {
+            type: "message",
+            sender: sender,
+            recipient: to,
+            content: content,
+          };
+
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify(message));
+          } else {
+            console.log("WebSocket is not open. Cannot send message.");
+          }
+
+          document.getElementById("messageContent").value = ""; // Clear the message input box
+        });
+
+      function fetchUsers() {
+        const loggedInUsername = sessionStorage.getItem("username"); // Get the logged-in username
+
+        fetch("/users")
+          .then((response) => response.json())
+          .then((users) => {
+            const usersContainer = document.getElementById("usersContainer");
+            users.forEach((user) => {
+              const userCard = document.createElement("div");
+              userCard.className = "user-card";
+              userCard.textContent = user;
+
+              if (user === loggedInUsername) {
+                userCard.classList.add("inactive"); // Style differently for logged-in user
+                userCard.style.color = "gray";
+                userCard.style.cursor = "not-allowed";
+              } else {
+                userCard.onclick = function () {
+                  document.getElementById("messageTo").value = user;
+                  document.querySelectorAll(".user-card").forEach((card) => {
+                    card.classList.remove("active");
+                  });
+                  userCard.classList.add("active");
+                };
+              }
+
+              usersContainer.appendChild(userCard);
+            });
+          })
+          .catch((error) => console.error("Error fetching users:", error));
+      }
+
+      function fetchAndDisplayMessages() {
+        const username = sessionStorage.getItem("username"); // Get the logged-in username from session storage
+        if (!username) {
+          console.log("No username found in session storage.");
+          return;
+        }
+
+        fetch(`/messages?username=${encodeURIComponent(username)}`)
+          .then((response) => {
+            if (!response.ok) {
+              throw new Error("Failed to fetch messages");
+            }
+            return response.json();
+          })
+          .then((messages) => {
+            const messageContainer =
+              document.getElementById("messageContainer");
+            messageContainer.innerHTML = ""; // Clear any existing messages first
+            messages.forEach((msg) => {
+              displayMessage(msg);
+            });
+          })
+          .catch((error) =>
+            console.error("Error fetching old messages:", error)
+          );
+      }
+
+      // // Encryption and decryption functions using DES
+      // function encryptDES(message, key) {
+      //   const keyHex = CryptoJS.enc.Hex.parse(key);
+      //   const iv = CryptoJS.lib.WordArray.random(8); // DES block size is 8 bytes
+
+      //   const encrypted = CryptoJS.DES.encrypt(message, keyHex, {
+      //     iv: iv,
+      //     mode: CryptoJS.mode.CBC,
+      //     padding: CryptoJS.pad.Pkcs7,
+      //   });
+
+      //   // Concatenate IV and ciphertext, then encode in Base64
+      //   const ivCiphertext = iv.concat(encrypted.ciphertext);
+
+      //   // Log the padding byte
+      //   const paddingByte =
+      //     encrypted.ciphertext.words[encrypted.ciphertext.sigBytes - 1] & 0xff;
+      //   console.log("Padding byte:", paddingByte);
+
+      //   return CryptoJS.enc.Base64.stringify(ivCiphertext);
+      // }
+
+      // function decryptDES(encryptedMessage, key) {
+      //   const keyHex = CryptoJS.enc.Hex.parse(key);
+
+      //   // Decode Base64 and extract IV and ciphertext
+      //   const encryptedWordArray = CryptoJS.enc.Base64.parse(encryptedMessage);
+      //   const iv = CryptoJS.lib.WordArray.create(
+      //     encryptedWordArray.words.slice(0, 2),
+      //     8
+      //   ); // First 2 words (8 bytes) are IV
+      //   const ciphertext = CryptoJS.lib.WordArray.create(
+      //     encryptedWordArray.words.slice(2),
+      //     encryptedWordArray.sigBytes - 8
+      //   ); // Remaining words are ciphertext
+
+      //   const decrypted = CryptoJS.DES.decrypt(
+      //     {
+      //       ciphertext: ciphertext,
+      //     },
+      //     keyHex,
+      //     {
+      //       iv: iv,
+      //       mode: CryptoJS.mode.CBC,
+      //       padding: CryptoJS.pad.Pkcs7,
+      //     }
+      //   );
+
+      //   return decrypted.toString(CryptoJS.enc.Utf8);
+      // }
+
+      function displayMessage(msg) {
+        const messageDiv = document.createElement("div");
+        let messageContent = `From ${msg.sender}: ${msg.content} `;
+
+        if (msg.hasOwnProperty("timestamp")) {
+          messageContent += ` (sent at ${msg.timestamp})`;
+        }
+        messageDiv.textContent = messageContent;
+        document.getElementById("messageContainer").appendChild(messageDiv);
+      }
+    </script>
+  </body>
+</html>

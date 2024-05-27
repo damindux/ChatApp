@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Chat App Registration and Login</title>
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/bulma@1.0.0/css/bulma.min.css"
+    />
+    <style>
+      body {
+        margin: 3%;
+      }
+      #formContainer {
+        margin-top: 5%;
+      }
+      /* Hide forms by default */
+      #formContainer form {
+        display: none;
+      }
+      /* Only show the active form */
+      #formContainer form.active {
+        display: block;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="tabs is-centered is-medium is-toggle is-toggle-rounded">
+      <ul>
+        <li class="is-active" data-target="registerForm">
+          <a>
+            <span>Register</span>
+          </a>
+        </li>
+        <li data-target="signInForm">
+          <a>
+            <span>Sign In</span>
+          </a>
+        </li>
+      </ul>
+    </div>
+    <div id="formContainer" class="container is-max-desktop">
+      <form id="registerForm" class="active box">
+        <h2 id="formTitle" class="title">Register</h2>
+        <div class="field">
+          <label class="label">Username</label>
+          <div class="control">
+            <input
+              class="input is-rounded"
+              type="text"
+              id="registerUsername"
+              required
+              minlength="3"
+              placeholder="e.g: Alex"
+            />
+          </div>
+        </div>
+        <div class="field">
+          <label class="label">Password</label>
+          <div class="control">
+            <input
+              class="input is-rounded"
+              type="password"
+              id="registerPassword"
+              required
+              placeholder="Password"
+            />
+          </div>
+        </div>
+        <button class="button is-info is-rounded" type="submit">
+          Register
+        </button>
+      </form>
+
+      <form id="signInForm" class="box">
+        <h2 id="formTitle" class="title">Sign in</h2>
+        <div class="field">
+          <label class="label">Username</label>
+          <div class="control">
+            <input
+              class="input is-rounded"
+              type="text"
+              id="signInUsername"
+              required
+              minlength="3"
+              placeholder="Username"
+            />
+          </div>
+        </div>
+        <div class="field">
+          <label class="label">Password</label>
+          <div class="control">
+            <input
+              class="input is-rounded"
+              type="password"
+              id="signInPassword"
+              required
+              placeholder="Password"
+            />
+          </div>
+        </div>
+        <button class="button is-info is-rounded" type="submit">Sign In</button>
+      </form>
+    </div>
+
+    <div id="responseMessage"></div>
+
+    <script>
+      document.addEventListener("DOMContentLoaded", () => {
+        const tabs = document.querySelectorAll(".tabs li");
+        const forms = document.querySelectorAll("#formContainer form");
+
+        tabs.forEach((tab) => {
+          tab.addEventListener("click", () => {
+            tabs.forEach((x) => x.classList.remove("is-active"));
+            tab.classList.add("is-active");
+
+            const targetForm = document.getElementById(
+              tab.getAttribute("data-target")
+            );
+
+            forms.forEach((form) => {
+              form.style.display = "none";
+              form.classList.remove("active");
+            });
+
+            targetForm.style.display = "block";
+            targetForm.classList.add("active");
+          });
+        });
+      });
+
+      document
+        .getElementById("registerForm")
+        .addEventListener("submit", function (event) {
+          event.preventDefault();
+          var username = document.getElementById("registerUsername").value;
+          var password = document.getElementById("registerPassword").value;
+
+          fetch("/signup", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              username: username,
+              password: password,
+            }),
+          })
+            .then((response) => {
+              if (!response.ok) {
+                throw new Error(
+                  "Network response was not ok: " + response.statusText
+                );
+              }
+              return response.json();
+            })
+            .then((data) => {
+              document.getElementById("responseMessage").textContent =
+                "Registration successful!";
+              document.getElementById("registerForm").reset();
+            })
+            .catch((error) => {
+              document.getElementById("responseMessage").textContent =
+                "Error: " + error.message;
+            });
+        });
+
+      document
+        .getElementById("signInForm")
+        .addEventListener("submit", function (event) {
+          event.preventDefault();
+          var username = document.getElementById("signInUsername").value;
+          var password = document.getElementById("signInPassword").value;
+
+          fetch("/login", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              username: username,
+              password: password,
+            }),
+          })
+            .then((response) => {
+              if (response.status === 401) {
+                throw new Error("Invalid username or password");
+              } else if (response.status === 404) {
+                throw new Error("User not found")
+              } else if (!response.ok) {
+                throw new Error(
+                  "Network response was not ok: " + response.statusText
+                );
+              }
+              return response.json();
+            })
+            .then((data) => {
+              if (data.success) {
+                sessionStorage.setItem("username", username); // Store logged-in username
+                window.location.assign("/chat"); // Redirect to chat page
+              } else {
+                document.getElementById("responseMessage").textContent =
+                  "Login failed!";
+              }
+            })
+            .catch((error) => {
+              document.getElementById("responseMessage").textContent =
+                "Login failed: " + error.message;
+            });
+        });
+    </script>
+  </body>
+</html>
